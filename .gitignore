@@ -2,4 +2,4 @@
 grafana/.env
 .venv/
 *.log
- __pycache__/
+__pycache__/
