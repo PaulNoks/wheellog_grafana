@@ -1,0 +1,5 @@
+.env
+grafana/.env
+.venv/
+*.log
+ __pycache__/
