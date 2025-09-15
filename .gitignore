@@ -3,3 +3,5 @@ grafana/.env
 .venv/
 *.log
 __pycache__/
+ai_analyzer/venv/
+ai_analyzer/.env

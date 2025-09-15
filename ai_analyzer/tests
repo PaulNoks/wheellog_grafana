@@ -1,0 +1,31 @@
+# Тест подключения к GigaChat
+curl http://localhost:8001/test-gigachat
+
+# Тест полного анализа
+curl http://localhost:8001/test-gigachat-analysis
+
+# Информация о токене
+curl http://localhost:8001/token-info
+
+# Полное тестирование
+curl http://localhost:8001/test-full-pipeline
+
+
+# Тестовый анализ поездки
+curl -X POST "http://localhost:8001/analyze-trip" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "test_2025_09_14.csv",
+    "timestamp": "2025-09-14T15:30:00",
+    "records_count": 1500,
+    "distance_km": 10.5,
+    "duration_min": 35,
+    "battery_start": 85,
+    "battery_end": 42,
+    "battery_used": 43,
+    "max_speed": 25.8,
+    "avg_speed": 18.0
+  }'
+
+
+python3 test_auth.py
