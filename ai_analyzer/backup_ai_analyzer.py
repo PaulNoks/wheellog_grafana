@@ -47,236 +47,60 @@ class TripWebhookPayload(BaseModel):
     max_speed: float
     avg_speed: float
 
-class EnhancedTripAnalyzer:
-    """Расширенный анализатор поездок с реальными характеристиками моноколеса"""
-    
-    def __init__(self):
-        # Характеристики Leaperkim Patton S
-        self.wheel_specs = {
-            'battery_wh': 2220,  # Вт*ч
-            'power_w': 3000,     # Вт
-            'diameter_inch': 16,
-            'max_speed_real': 70,  # Реальная максимальная скорость (не холостой ход)
-            'weight_kg': 36.5,
-            'tire_type': 'moto_slick'
-        }
-        
-        # Данные пользователя
-        self.rider_weight = 92  # кг
-        
-        # Эталонные данные для сравнения (на основе калькулятора)
-        self.reference_range = 83  # км при 100% заряде в идеальных условиях
-    
-    def analyze_speed_efficiency(self, trip_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Анализ эффективности скорости"""
-        
-        avg_speed = trip_data['avg_speed']
-        max_speed = trip_data['max_speed']
-        
-        real_max_speed = min(max_speed, self.wheel_specs['max_speed_real'])
-        
-        optimal_speed_range = (30, 45)
-        
-        if avg_speed < 15:
-            speed_category = "очень медленная (городская езда)"
-            efficiency_impact = "высокий расход из-за частых остановок"
-        elif avg_speed < 25:
-            speed_category = "медленная (прогулочная)"
-            efficiency_impact = "повышенный расход, неоптимальная скорость"
-        elif optimal_speed_range[0] <= avg_speed <= optimal_speed_range[1]:
-            speed_category = "оптимальная"
-            efficiency_impact = "максимальная эффективность"
-        elif avg_speed > 50:
-            speed_category = "высокая"
-            efficiency_impact = "повышенный расход из-за аэродинамического сопротивления"
-        else:
-            speed_category = "умеренная"
-            efficiency_impact = "хорошая эффективность"
-        
-        return {
-            'real_max_speed': real_max_speed,
-            'speed_category': speed_category,
-            'efficiency_impact': efficiency_impact,
-            'is_optimal': optimal_speed_range[0] <= avg_speed <= optimal_speed_range[1]
-        }
-    
-    def calculate_realistic_range(self, current_battery: int, consumption_per_km: float, conditions: Dict[str, Any]) -> Dict[str, float]:
-        """Расчет реалистичного остатка хода с учетом всех факторов"""
-        
-        base_range_per_percent = self.reference_range / 100
-        
-        if consumption_per_km > 0:
-            actual_range_per_percent = 1 / consumption_per_km
-        else:
-            actual_range_per_percent = base_range_per_percent
-        
-        usable_battery = self._get_usable_battery_percentage(current_battery)
-        
-        conservative_range = usable_battery * actual_range_per_percent * 0.7
-        
-        realistic_range = usable_battery * actual_range_per_percent * conditions.get('condition_factor', 0.85)
-        
-        optimistic_range = current_battery * base_range_per_percent
-        
-        return {
-            'conservative': max(0, conservative_range),
-            'realistic': max(0, realistic_range),
-            'optimistic': max(0, optimistic_range)
-        }
-    
-    def _get_usable_battery_percentage(self, battery_level: int) -> float:
-        """Расчет реально используемого процента батареи с учетом нелинейности"""
-        
-        if battery_level > 80:
-            return battery_level - 5
-        elif battery_level > 50:
-            return battery_level - 3
-        elif battery_level > 30:
-            return battery_level - 8
-        elif battery_level > 15:
-            return battery_level - 15
-        else:
-            return max(0, battery_level - 25)
-    
-    def analyze_riding_style(self, trip_data: Dict[str, Any]) -> Dict[str, str]:
-        """Анализ стиля езды на основе реальных данных"""
-        
-        avg_speed = trip_data['avg_speed']
-        max_speed = min(trip_data['max_speed'], self.wheel_specs['max_speed_real'])
-        
-        speed_ratio = avg_speed / max_speed if max_speed > 0 else 0
-        
-        if speed_ratio > 0.8:
-            style = "равномерная езда"
-            efficiency = "высокая эффективность"
-        elif speed_ratio > 0.6:
-            style = "умеренно-переменная"
-            efficiency = "хорошая эффективность"
-        elif speed_ratio > 0.4:
-            style = "городская (частые остановки)"
-            efficiency = "средняя эффективность"
-        else:
-            style = "агрессивная/стоп-энд-гоу"
-            efficiency = "низкая эффективность"
-        
-        if avg_speed < 15:
-            speed_analysis = "прогулочный темп, высокий относительный расход"
-        elif 25 <= avg_speed <= 40:
-            speed_analysis = "оптимальный скоростной режим"
-        elif avg_speed > 50:
-            speed_analysis = "высокоскоростная езда, повышенное энергопотребление"
-        else:
-            speed_analysis = "умеренный темп"
-        
-        return {
-            'riding_style': style,
-            'efficiency_category': efficiency,
-            'speed_analysis': speed_analysis
-        }
-    
-    def create_enhanced_analysis_prompt(self, trip_data: Dict[str, Any], detailed_stats: Dict[str, Any], historical_data: Dict[str, Any]) -> str:
-        """Создание расширенного промпта для анализа"""
-        
-        speed_analysis = self.analyze_speed_efficiency(trip_data)
-        riding_analysis = self.analyze_riding_style(trip_data)
-        conditions = {'condition_factor': 0.85}
-        
-        consumption = trip_data['battery_used'] / max(trip_data['distance_km'], 0.1)
-
-        range_estimates = self.calculate_realistic_range(
-            trip_data['battery_end'], 
-            consumption,
-            conditions
-        )
-        
-        return f"""
-Проанализируй поездку на Leaperkim Patton S (2220 Вт*ч, 16", мотослик, райдер 92кг):
-
-📊 ДАННЫЕ ПОЕЗДКИ:
-• {trip_data['distance_km']} км за {trip_data['duration_min']} мин
-• Батарея: {trip_data['battery_start']}% → {trip_data['battery_end']}% (-{trip_data['battery_used']}%)
-• Скорость: {trip_data['avg_speed']:.1f} км/ч средняя, {speed_analysis['real_max_speed']:.1f} км/ч максимальная
-• Расход: {consumption:.1f}%/км
-
-🏍️ АНАЛИЗ ЭФФЕКТИВНОСТИ:
-• Скоростной режим: {speed_analysis['speed_category']}
-• Стиль езды: {riding_analysis['riding_style']}
-• Влияние на расход: {speed_analysis['efficiency_impact']}
-• Эффективность: {riding_analysis['efficiency_category']}
-
-📈 СРАВНЕНИЕ С ИСТОРИЕЙ ({historical_data['trips_count']} поездок):
-• Ваш обычный расход: {historical_data['avg_consumption']:.1f}%/км
-• Обычная скорость: {historical_data['avg_speed']:.1f} км/ч
-• Текущая поездка: {historical_data['performance_vs_average']}
-{"• Лучший результат: " + f"{historical_data['best_efficiency']:.1f}%/км" if historical_data.get('best_efficiency') else ""}
-
-⚡ ПРОГНОЗ ХОДА (с учетом нелинейности батареи):
-• Безопасно: {range_estimates['conservative']:.1f} км (с запасом)
-• Реально: {range_estimates['realistic']:.1f} км (при текущем стиле)
-• Максимум: {range_estimates['optimistic']:.1f} км (в идеальных условиях)
-
-💡 КОНТЕКСТ:
-• Эталонный пробег Patton S: ~83 км (100%, 40км/ч, идеальные условия)
-• Оптимальная скорость: 30-45 км/ч
-• При скорости >50 км/ч расход растет экспоненциально
-• Последние 20% батареи менее эффективны
-
-ЗАДАЧА: Дай краткий анализ (200-250 символов):
-1. Оцени эффективность относительно возможностей колеса
-2. Объясни основные факторы расхода в этой поездке  
-3. Дай конкретные рекомендации по оптимизации
-4. Укажи реалистичный остаток хода
-
-Тон: технически грамотный, конкретный, без общих фраз.
-"""
-
-
 class GigaChatClient:
     """Клиент для работы с GigaChat API с автоматическим обновлением токенов"""
-
+    
     def __init__(self):
         self.oauth_url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         self.api_url = "https://gigachat.devices.sberbank.ru/api/v1"
-
+        
+        # Получаем Authorization key из переменных окружения
         self.auth_key = os.getenv("GIGACHAT_AUTH_KEY")
         if not self.auth_key:
             logger.warning("GIGACHAT_AUTH_KEY не установлен в переменных окружения")
             self.auth_key = None
-
+        
+        # Переменные для управления токеном
         self.access_token = None
         self.token_expires_at = None
         self.token_lock = False
-
+        
+        # Настраиваем HTTP сессию
         self.session = self._create_session_with_russian_certs()
-
+    
     def _create_session_with_russian_certs(self):
         """Создание HTTP сессии с российскими сертификатами"""
         session = requests.Session()
-
+        
+        # Настройка retry стратегии
         retry_strategy = Retry(
             total=3,
             status_forcelist=[429, 500, 502, 503, 504],
             backoff_factor=1
         )
-
+        
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-
+        
+        # Пути к российским сертификатам
         cert_paths = [
             "/home/pavel/certs/russian_trusted_root_ca_pem.crt",
-            "/home/pavel/certs/russian_trusted_sub_ca_pem.crt",
+            "/home/pavel/certs/russian_trusted_sub_ca_pem.crt", 
             "/home/pavel/certs/russian_trusted_root_ca_gost_2025_pem.crt",
             "/home/pavel/certs/russian_trusted_sub_ca_2024_pem.crt",
             "/home/pavel/certs/russian_trusted_sub_ca_gost_2025_pem.crt",
+            # Альтернативные пути
             "/home/pavel/russian_trusted_root_ca_pem.crt",
             "/home/pavel/russian_trusted_sub_ca_pem.crt"
         ]
-
+        
+        # Создаем временный файл с объединенными сертификатами
         combined_cert_path = "/tmp/russian_certs_combined.pem"
-
+        
         try:
             with open(combined_cert_path, 'w') as combined_file:
+                # Добавляем системные сертификаты
                 if certifi:
                     try:
                         with open(certifi.where(), 'r') as sys_certs:
@@ -284,7 +108,8 @@ class GigaChatClient:
                             combined_file.write('\n')
                     except:
                         pass
-
+                
+                # Добавляем российские сертификаты
                 for cert_path in cert_paths:
                     if os.path.exists(cert_path):
                         try:
@@ -294,87 +119,223 @@ class GigaChatClient:
                             logger.info(f"Добавлен сертификат: {cert_path}")
                         except Exception as e:
                             logger.warning(f"Не удалось прочитать сертификат {cert_path}: {e}")
-
+            
+            # Устанавливаем путь к сертификатам
             session.verify = combined_cert_path
             logger.info("Настроены российские сертификаты для GigaChat")
-
+            
         except Exception as e:
             logger.error(f"Ошибка настройки сертификатов: {e}")
+            # Fallback - отключаем проверку SSL (не рекомендуется для продакшена)
             session.verify = False
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             logger.warning("SSL проверка отключена - не рекомендуется для продакшена!")
-
+        
         return session
-
+    
     def _is_token_valid(self) -> bool:
         """Проверка действительности токена"""
         if not self.access_token or not self.token_expires_at:
             return False
-
+        
+        # Добавляем буфер в 2 минуты для обновления токена заранее
         return datetime.now() < (self.token_expires_at - timedelta(minutes=2))
-
+    
     def _get_new_access_token(self) -> bool:
         """Получение нового access token"""
         if not self.auth_key:
             logger.error("GIGACHAT_AUTH_KEY не настроен")
             return False
-
+            
         if self.token_lock:
-            for _ in range(30):
+            # Если токен уже обновляется, ждем
+            for _ in range(30):  # Максимум 30 секунд
                 time.sleep(1)
                 if not self.token_lock:
                     break
             return self._is_token_valid()
-
+        
         self.token_lock = True
-
+        
         try:
             logger.info("Получаем новый access token для GigaChat...")
+            
+            # Генерируем уникальный RqUID
             rq_uid = str(uuid.uuid4())
-
+            
             headers = {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Accept': 'application/json',
                 'RqUID': rq_uid,
                 'Authorization': f'Basic {self.auth_key}'
             }
-
+            
             payload = {
                 'scope': 'GIGACHAT_API_PERS'
             }
-
+            
             response = self.session.post(
                 self.oauth_url,
                 headers=headers,
                 data=payload,
                 timeout=30
             )
-
+            
             if response.status_code == 200:
                 token_data = response.json()
                 self.access_token = token_data['access_token']
-                expires_in = token_data.get('expires_in', 1800)
+                
+                # Токен действует 30 минут
+                expires_in = token_data.get('expires_in', 1800)  # По умолчанию 30 минут
                 self.token_expires_at = datetime.now() + timedelta(seconds=expires_in)
+                
                 logger.info(f"Новый access token получен, действителен до: {self.token_expires_at}")
                 return True
             else:
                 logger.error(f"Ошибка получения токена: {response.status_code} - {response.text}")
                 return False
-
+                
         except Exception as e:
             logger.error(f"Исключение при получении токена: {e}")
             return False
         finally:
             self.token_lock = False
-
+    
     def _get_valid_token(self) -> Optional[str]:
         """Получение действующего токена (с автообновлением при необходимости)"""
         if not self._is_token_valid():
             if not self._get_new_access_token():
                 return None
+        
         return self.access_token
+    
+    async def analyze_trip(self, trip_data: Dict[str, Any], detailed_stats: Dict[str, Any]) -> str:
+        """Анализ поездки через GigaChat с автообновлением токена"""
+        
+        # Получаем действующий токен
+        token = self._get_valid_token()
+        if not token:
+            return "❌ Не удалось получить токен доступа к GigaChat"
+        
+        prompt = self._create_analysis_prompt(trip_data, detailed_stats)
+        
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {token}'
+        }
+        
+        payload = {
+            "model": "GigaChat",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Ты эксперт по анализу поездок на электротранспорте. Анализируй данные поездок и давай практические рекомендации на русском языке."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.3,
+            "max_tokens": 500
+        }
+        
+        try:
+            logger.info("Отправляем запрос в GigaChat...")
+            
+            response = self.session.post(
+                f"{self.api_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            
+            logger.info(f"GigaChat ответ: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                analysis = result['choices'][0]['message']['content']
+                logger.info("AI-анализ получен успешно")
+                return analysis
+            elif response.status_code == 401:
+                # Токен истек, попробуем обновить и повторить запрос
+                logger.warning("Токен истек, обновляем...")
+                self.access_token = None
+                self.token_expires_at = None
+                
+                new_token = self._get_valid_token()
+                if new_token:
+                    headers['Authorization'] = f'Bearer {new_token}'
+                    response = self.session.post(
+                        f"{self.api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=30
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        analysis = result['choices'][0]['message']['content']
+                        logger.info("AI-анализ получен после обновления токена")
+                        return analysis
+                
+                return "❌ Ошибка авторизации в GigaChat"
+            else:
+                logger.error(f"GigaChat API ошибка {response.status_code}: {response.text}")
+                return f"❌ Временно недоступен AI-анализ (ошибка {response.status_code})"
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Ошибка запроса к GigaChat: {e}")
+            return "❌ Временно недоступен AI-анализ (сетевая ошибка)"
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка GigaChat: {e}")
+            return "❌ Временно недоступен AI-анализ"
+    
+    def _create_analysis_prompt(self, trip_data: Dict[str, Any], detailed_stats: Dict[str, Any]) -> str:
+    """Улучшенный промпт с учетом реальных характеристик Patton S"""
+    
+    # Реалистичный расчет остатка хода
+    current_battery = trip_data['battery_end']
+    consumption = trip_data['battery_used'] / max(trip_data['distance_km'], 0.1)
+    
+    # Учитываем нелинейность батареи (последние 20% менее эффективны)
+    usable_battery = current_battery - 10 if current_battery > 15 else max(0, current_battery - 5)
+    realistic_range = usable_battery / consumption if consumption > 0 else 0
+    
+    # Эталонные данные для Patton S 2220Wh
+    reference_consumption = 1.2  # %/км при оптимальных условиях (40 км/ч, 20°C)
+    max_theoretical_range = current_battery / reference_consumption
+    
+    return f"""
+Анализируй поездку на Leaperkim Patton S (2220Wh, 92кг райдер, мотослик):
 
+📊 ПОЕЗДКА:
+- {trip_data['distance_km']} км, {trip_data['duration_min']} мин
+- Батарея: {trip_data['battery_start']}% → {trip_data['battery_end']}% (-{trip_data['battery_used']}%)
+- Скорость: {trip_data['avg_speed']:.1f} средняя, {min(trip_data['max_speed'], 70):.1f} макс (реальная)
+- Расход: {consumption:.1f}%/км
+
+⚡️ ЭНЕРГОЭФФЕКТИВНОСТЬ:
+- Эталонный расход: {reference_consumption}%/км (40км/ч, идеал)
+- Ваш результат: {"отлично" if consumption < 1.5 else "хорошо" if consumption < 2.5 else "высокий расход"}
+- Фактор влияния: {"низкая скорость + остановки" if trip_data['avg_speed'] < 20 else "оптимальный режим" if 25 <= trip_data['avg_speed'] <= 45 else "высокая скорость"}
+
+🔋 РЕАЛЬНЫЙ ОСТАТОК ХОДА:
+- При вашем стиле: {realistic_range:.0f} км
+- В идеальных условиях: {max_theoretical_range:.0f} км  
+- Безопасный запас: {realistic_range * 0.7:.0f} км
+
+💡 ФИЗИКА ЭНЕРГОПОТРЕБЛЕНИЯ:
+- Оптимум: 30-40 км/ч (лучший баланс скорость/расход)
+- <20 км/ч: высокий относительный расход (остановки, разгоны)
+- >50 км/ч: квадратичный рост аэросопротивления
+- Холостой ход >70 км/ч не учитывается в реальной езде
+
+ОТВЕТ (150-200 символов): Техническая оценка эффективности, конкретные причины расхода, практичные советы, точный прогноз хода.
+"""
+    
     def test_connection(self) -> Dict[str, Any]:
         """Тестирование подключения к GigaChat"""
         try:
@@ -384,18 +345,18 @@ class GigaChatClient:
                     "status": "error",
                     "message": "Не удалось получить токен доступа"
                 }
-
+            
             headers = {
                 'Accept': 'application/json',
                 'Authorization': f'Bearer {token}'
             }
-
+            
             response = self.session.get(
                 f"{self.api_url}/models",
                 headers=headers,
                 timeout=10
             )
-
+            
             if response.status_code == 200:
                 models = response.json()
                 return {
@@ -410,65 +371,16 @@ class GigaChatClient:
                     "message": f"Ошибка API: {response.status_code}",
                     "response": response.text
                 }
+                
         except Exception as e:
             return {
                 "status": "error",
                 "message": f"Ошибка подключения: {str(e)}"
             }
-    
-    async def analyze_trip(self, prompt: str) -> str:
-        """Расширенный анализ поездки с учетом реальных характеристик колеса"""
-        
-        token = self._get_valid_token()
-        if not token:
-            return "❌ Не удалось получить токен доступа к GigaChat"
-        
-        headers = {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {token}'
-        }
-        
-        payload = {
-            "model": "GigaChat",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "Ты эксперт по электротранспорту с глубоким пониманием физики движения и энергопотребления моноколес. Анализируй данные технически точно."
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.2,
-            "max_tokens": 400
-        }
-        
-        try:
-            logger.info("Отправляем расширенный запрос в GigaChat...")
-            response = self.session.post(
-                f"{self.api_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                analysis = result['choices'][0]['message']['content']
-                logger.info("Расширенный AI-анализ получен успешно")
-                return analysis
-            else:
-                logger.error(f"GigaChat API ошибка {response.status_code}: {response.text}")
-                return "❌ Временно недоступен AI-анализ"
-        except Exception as e:
-            logger.error(f"Ошибка расширенного анализа: {e}")
-            return "❌ Ошибка анализа поездки"
 
 class DatabaseManager:
     """Менеджер для работы с базой данных с исправленными колонками"""
-
+    
     def __init__(self):
         self.db_config = {
             'host': os.getenv('DB_HOST', 'localhost'),
@@ -477,139 +389,100 @@ class DatabaseManager:
             'user': os.getenv('DB_USER', 'postgres'),
             'password': os.getenv('DB_PASSWORD', '')
         }
-
+    
     def get_database_schema(self):
         """Получение схемы таблицы для определения правильных названий колонок"""
         try:
             conn = psycopg2.connect(**self.db_config)
             cursor = conn.cursor()
-
+            
             cursor.execute("""
-                SELECT column_name, data_type
-                FROM information_schema.columns
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
                 WHERE table_name = 'wheellog_data'
                 ORDER BY ordinal_position;
             """)
-
+            
             columns = cursor.fetchall()
             cursor.close()
             conn.close()
-
+            
             logger.info(f"Колонки в таблице wheellog_data: {[col[0] for col in columns]}")
             return {col[0]: col[1] for col in columns}
-
+            
         except Exception as e:
             logger.error(f"Ошибка получения схемы БД: {e}")
             return {}
-
+    
     def get_trip_detailed_stats(self, filename: str) -> Dict[str, Any]:
         """Получение детальной статистики поездки из БД с автоопределением колонок"""
+        
         try:
             conn = psycopg2.connect(**self.db_config)
             cursor = conn.cursor()
-
+            
+            # Получаем схему таблицы для определения правильных названий
             schema = self.get_database_schema()
             
-            speed_col = next((col for col in schema if 'speed' in col.lower() or 'velocity' in col.lower()), None)
+            # Определяем названия колонок (возможные варианты)
+            battery_col = None
+            speed_col = None
+            temp_col = None
+            distance_col = None
             
-            if not speed_col:
-                logger.warning("Не найдена колонка 'speed' в БД")
+            for col_name in schema.keys():
+                col_lower = col_name.lower()
+                if 'battery' in col_lower or 'bat' in col_lower or 'charge' in col_lower:
+                    battery_col = col_name
+                elif 'speed' in col_lower or 'velocity' in col_lower:
+                    speed_col = col_name
+                elif 'temp' in col_lower or 'temperature' in col_lower:
+                    temp_col = col_name
+                elif 'distance' in col_lower or 'dist' in col_lower:
+                    distance_col = col_name
+            
+            logger.info(f"Определенные колонки: battery={battery_col}, speed={speed_col}, temp={temp_col}, distance={distance_col}")
+            
+            # Если не нашли нужные колонки, возвращаем дефолтные значения
+            if not (speed_col or battery_col or distance_col):
+                logger.warning("Не найдены необходимые колонки в БД")
                 return self._get_default_stats()
-
-            cursor.execute(f"SELECT AVG({speed_col}) FROM wheellog_data WHERE filename = %s", (filename,))
-            avg_speed_db = cursor.fetchone()[0]
             
+            # Формируем простой запрос для получения базовых метрик
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM wheellog_data 
+                WHERE filename = %s
+            """, (filename,))
+            
+            record_count = cursor.fetchone()[0]
+            
+            if record_count == 0:
+                logger.warning(f"Нет данных для файла {filename}")
+                return self._get_default_stats()
+                
+            # Базовые метрики из payload уже есть, дополняем простыми расчетами
             cursor.close()
             conn.close()
             
             return {
-                'typical_avg_speed': avg_speed_db if avg_speed_db else 25.0
+                'avg_temp': 25.0,  # Дефолтное значение
+                'high_speed_time': 10.0,  # Примерная оценка
+                'battery_per_km': 4.0,  # Будет пересчитано из payload
+                'efficiency_score': 7.0,
+                'aggressiveness': 5.0,
+                'avg_battery_usage': 4.0,
+                'typical_avg_speed': 18.0
             }
+            
         except Exception as e:
             logger.error(f"Ошибка получения статистики: {e}")
-            return self._get_default_stats()
-
-    def get_historical_stats(self, exclude_filename: str = None) -> Dict[str, Any]:
-        """Получение исторических данных за 30 дней"""
-        try:
-            conn = psycopg2.connect(**self.db_config)
-            cursor = conn.cursor()
-            
-            query = """
-            WITH trip_stats AS (
-                SELECT 
-                    file_name,
-                    (MAX(battery_level) - MIN(battery_level))::float / 
-                    NULLIF((MAX(totaldistance) - MIN(totaldistance))/1000, 0) as consumption_per_km,
-                    AVG(speed) as avg_speed,
-                    MIN((MAX(battery_level) - MIN(battery_level))::float / 
-                    NULLIF((MAX(totaldistance) - MIN(totaldistance))/1000, 0)) OVER () as best_efficiency,
-                    MAX((MAX(battery_level) - MIN(battery_level))::float / 
-                    NULLIF((MAX(totaldistance) - MIN(totaldistance))/1000, 0)) OVER () as worst_efficiency
-                FROM wheellog_data 
-                WHERE timestamp > NOW() - INTERVAL '30 days'
-                  AND file_name != COALESCE(%s, '')
-                  AND totaldistance IS NOT NULL
-                  AND battery_level IS NOT NULL
-                  AND speed IS NOT NULL
-                GROUP BY file_name
-                HAVING (MAX(totaldistance) - MIN(totaldistance)) > 500
-            )
-            SELECT 
-                AVG(consumption_per_km) as avg_consumption,
-                AVG(avg_speed) as avg_speed,
-                COUNT(*) as trips_count,
-                MIN(best_efficiency) as best_efficiency,
-                MAX(worst_efficiency) as worst_efficiency
-            FROM trip_stats
-            WHERE consumption_per_km BETWEEN 0.5 AND 10
-            """
-            
-            cursor.execute(query, (exclude_filename,))
-            result = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            
-            if result and result[0]:
-                avg_consumption, avg_speed, trips_count, best_eff, worst_eff = result
-                
-                # Анализ отклонения от нормы
-                current_consumption = float(os.getenv("CURRENT_CONSUMPTION", 0))
-                if current_consumption:
-                    if current_consumption < avg_consumption * 0.8:
-                        performance = "значительно лучше среднего"
-                    elif current_consumption < avg_consumption * 0.9:
-                        performance = "лучше среднего"
-                    elif current_consumption > avg_consumption * 1.2:
-                        performance = "значительно хуже среднего"
-                    elif current_consumption > avg_consumption * 1.1:
-                        performance = "хуже среднего"
-                    else:
-                        performance = "в пределах нормы"
-                else:
-                    performance = "недостаточно данных для сравнения"
-
-                return {
-                    'avg_consumption': avg_consumption,
-                    'avg_speed': avg_speed,
-                    'trips_count': trips_count,
-                    'best_efficiency': best_eff,
-                    'worst_efficiency': worst_eff,
-                    'performance_vs_average': performance,
-                    'has_history': True
-                }
-                
-        except Exception as e:
-            logger.error(f"Ошибка получения исторических данных: {e}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
         
-        return {
-            'avg_consumption': 2.5,
-            'avg_speed': 35,
-            'trips_count': 0,
-            'performance_vs_average': "недостаточно данных для сравнения",
-            'has_history': False
-        }
-
+        return self._get_default_stats()
+    
     def _get_default_stats(self) -> Dict[str, Any]:
         """Значения по умолчанию для статистики"""
         return {
@@ -624,7 +497,7 @@ class DatabaseManager:
 
 class NotificationManager:
     """Менеджер уведомлений"""
-
+    
     def __init__(self):
         self.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
@@ -635,13 +508,13 @@ class NotificationManager:
             'email_password': os.getenv('EMAIL_PASSWORD'),
             'recipient': os.getenv('EMAIL_RECIPIENT')
         }
-
+    
     async def send_telegram_report(self, report: str):
         """Отправка отчета в Telegram"""
         if not self.telegram_bot_token or not self.telegram_chat_id:
             logger.warning("Telegram не настроен")
             return False
-
+        
         try:
             url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
             payload = {
@@ -649,42 +522,42 @@ class NotificationManager:
                 'text': report,
                 'parse_mode': 'HTML'
             }
-
+            
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
             logger.info("Отчет отправлен в Telegram")
             return True
-
+            
         except Exception as e:
             logger.error(f"Ошибка отправки в Telegram: {e}")
             return False
-
+    
     async def send_email_report(self, subject: str, report: str):
         """Отправка отчета по email"""
         if not all(self.email_config.values()):
             logger.warning("Email не настроен")
             return False
-
+        
         try:
             import smtplib
             from email.mime.text import MIMEText
             from email.mime.multipart import MIMEMultipart
-
+            
             msg = MIMEMultipart()
             msg['From'] = self.email_config['email_user']
             msg['To'] = self.email_config['recipient']
             msg['Subject'] = subject
-
+            
             msg.attach(MIMEText(report, 'plain', 'utf-8'))
-
+            
             with smtplib.SMTP(self.email_config['smtp_server'], self.email_config['smtp_port']) as server:
                 server.starttls()
                 server.login(self.email_config['email_user'], self.email_config['email_password'])
                 server.send_message(msg)
-
+            
             logger.info("Отчет отправлен по email")
             return True
-
+            
         except Exception as e:
             logger.error(f"Ошибка отправки email: {e}")
             return False
@@ -693,46 +566,58 @@ class NotificationManager:
 gigachat_client = GigaChatClient()
 db_manager = DatabaseManager()
 notification_manager = NotificationManager()
-enhanced_analyzer = EnhancedTripAnalyzer()
 
 @app.post("/analyze-trip")
 async def analyze_trip_endpoint(payload: TripWebhookPayload, background_tasks: BackgroundTasks):
     """Endpoint для анализа поездки (вызывается из основного FastAPI)"""
+    
     logger.info(f"Получен запрос на анализ поездки: {payload.filename}")
+    
+    # Запускаем анализ в фоне
     background_tasks.add_task(process_trip_analysis, payload.dict())
+    
     return {"status": "accepted", "message": "Анализ поездки запущен"}
 
 async def process_trip_analysis(trip_data: Dict[str, Any]):
     """Обработка анализа поездки"""
+    
     try:
-        current_consumption = trip_data['battery_used'] / max(trip_data['distance_km'], 0.1)
-        os.environ["CURRENT_CONSUMPTION"] = str(current_consumption)
-
+        # Получаем детальную статистику из БД
         detailed_stats = db_manager.get_trip_detailed_stats(trip_data['filename'])
-        historical_stats = db_manager.get_historical_stats(trip_data['filename'])
-
-        prompt = enhanced_analyzer.create_enhanced_analysis_prompt(trip_data, detailed_stats, historical_stats)
-        ai_analysis = await gigachat_client.analyze_trip(prompt)
         
-        report = create_trip_report(trip_data, current_consumption, ai_analysis)
-
+        # Пересчитываем battery_per_km из фактических данных
+        if trip_data['distance_km'] > 0:
+            detailed_stats['battery_per_km'] = trip_data['battery_used'] / trip_data['distance_km']
+        
+        # Получаем AI-анализ
+        ai_analysis = await gigachat_client.analyze_trip(trip_data, detailed_stats)
+        
+        # Формируем отчет
+        report = create_trip_report(trip_data, detailed_stats, ai_analysis)
+        
+        # Отправляем уведомления
         await notification_manager.send_telegram_report(report)
         await notification_manager.send_email_report(
-            f"🛴 Поездка завершена - {trip_data['distance_km']} км",
+            f"🛴 Поездка завершена - {trip_data['distance_km']} км", 
             report
         )
+        
         logger.info(f"Анализ поездки {trip_data['filename']} завершен")
+        
     except Exception as e:
         logger.error(f"Ошибка анализа поездки: {e}")
 
-def create_trip_report(trip_data: Dict[str, Any], consumption: float, ai_analysis: str) -> str:
+def create_trip_report(trip_data: Dict[str, Any], detailed_stats: Dict[str, Any], ai_analysis: str) -> str:
     """Создание отчета о поездке"""
+    
+    # Форматируем время
     duration_hours = trip_data['duration_min'] // 60
     duration_mins = trip_data['duration_min'] % 60
     duration_str = f"{duration_hours}ч {duration_mins}м" if duration_hours > 0 else f"{duration_mins}м"
-
-    remaining_range = (trip_data['battery_end'] / max(consumption, 0.1))
-
+    
+    # Прогноз остатка хода
+    remaining_range = (trip_data['battery_end'] / max(detailed_stats['battery_per_km'], 0.1))
+    
     report = f"""🛴 <b>Поездка завершена!</b>
 
 📊 <b>Статистика:</b>
@@ -740,15 +625,16 @@ def create_trip_report(trip_data: Dict[str, Any], consumption: float, ai_analysi
 • Батарея: {trip_data['battery_start']}% → {trip_data['battery_end']}% (-{trip_data['battery_used']}%)
 • Макс скорость: {trip_data['max_speed']} км/ч
 • Средняя скорость: {trip_data['avg_speed']} км/ч
-• Расход: {consumption:.1f}%/км
+• Расход: {detailed_stats['battery_per_km']:.1f}%/км
 
-⚡️ <b>Остаток хода:</b> ~{remaining_range:.1f} км
+⚡ <b>Остаток хода:</b> ~{remaining_range:.1f} км
 
 🤖 <b>AI анализ:</b>
 {ai_analysis}
 
 📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}
 """
+    
     return report
 
 @app.get("/test-gigachat")
@@ -757,6 +643,7 @@ async def test_gigachat():
     try:
         result = gigachat_client.test_connection()
         return result
+        
     except Exception as e:
         return {
             "status": "error",
@@ -769,7 +656,6 @@ async def test_gigachat_analysis():
     """Тестовый анализ поездки для проверки AI"""
     try:
         test_data = {
-            'filename': 'test_file.csv',
             'distance_km': 12.5,
             'duration_min': 35,
             'battery_start': 85,
@@ -778,18 +664,31 @@ async def test_gigachat_analysis():
             'max_speed': 28.5,
             'avg_speed': 18.2
         }
-
-        detailed_stats = db_manager.get_trip_detailed_stats('test_file.csv')
-        historical_stats = db_manager.get_historical_stats('test_file.csv')
-
-        prompt = enhanced_analyzer.create_enhanced_analysis_prompt(test_data, detailed_stats, historical_stats)
-        result = await gigachat_client.analyze_trip(prompt)
-
+        
+        test_stats = {
+            'battery_per_km': 3.4,
+            'efficiency_score': 7.5,
+            'aggressiveness': 4.2,
+            'avg_temp': 24.5,
+            'high_speed_time': 15.8,
+            'avg_battery_usage': 3.8,
+            'typical_avg_speed': 19.1
+        }
+        
+        result = await gigachat_client.analyze_trip(test_data, test_stats)
+        
         return {
             "status": "success",
             "analysis": result,
-            "prompt": prompt
+            "test_data": test_data,
+            "test_stats": test_stats,
+            "token_status": {
+                "has_token": bool(gigachat_client.access_token),
+                "expires_at": gigachat_client.token_expires_at.isoformat() if gigachat_client.token_expires_at else None,
+                "is_valid": gigachat_client._is_token_valid()
+            }
         }
+        
     except Exception as e:
         return {
             "status": "error",
@@ -812,20 +711,26 @@ async def get_token_info():
 async def refresh_token():
     """Принудительное обновление токена"""
     try:
+        # Сбрасываем текущий токен
         gigachat_client.access_token = None
         gigachat_client.token_expires_at = None
+        
+        # Получаем новый
         success = gigachat_client._get_new_access_token()
+        
         if success:
             return {
                 "status": "success",
                 "message": "Токен обновлен успешно",
-                "expires_at": gigachat_client.token_expires_at.isoformat()
+                "expires_at": gigachat_client.token_expires_at.isoformat(),
+                "token_preview": gigachat_client.access_token[:20] + "..." if gigachat_client.access_token else None
             }
         else:
             return {
                 "status": "error",
                 "message": "Не удалось обновить токен"
             }
+            
     except Exception as e:
         return {
             "status": "error",
@@ -846,18 +751,22 @@ async def test_db_schema():
 async def test_full_pipeline():
     """Полное тестирование всего пайплайна"""
     results = {}
+    
+    # 1. Тест базы данных
     try:
         schema = db_manager.get_database_schema()
         results["database"] = {
             "status": "success" if schema else "error",
             "columns_count": len(schema),
-            "columns": list(schema.keys())[:10]
+            "columns": list(schema.keys())[:10]  # Первые 10 колонок
         }
     except Exception as e:
         results["database"] = {
             "status": "error",
             "error": str(e)
         }
+    
+    # 2. Тест GigaChat
     try:
         gigachat_result = gigachat_client.test_connection()
         results["gigachat"] = gigachat_result
@@ -866,8 +775,11 @@ async def test_full_pipeline():
             "status": "error",
             "error": str(e)
         }
+    
+    # 3. Тест Telegram
     try:
         if notification_manager.telegram_bot_token and notification_manager.telegram_chat_id:
+            # Отправляем тестовое сообщение
             test_report = "🧪 Тестовое сообщение от WheelLog AI Analyzer"
             telegram_success = await notification_manager.send_telegram_report(test_report)
             results["telegram"] = {
@@ -884,10 +796,14 @@ async def test_full_pipeline():
             "status": "error",
             "error": str(e)
         }
-    all_services = [results.get("database", {}).get("status"),
+    
+    # 4. Общий статус
+    all_services = [results.get("database", {}).get("status"), 
                    results.get("gigachat", {}).get("status"),
                    results.get("telegram", {}).get("status")]
+    
     overall_status = "success" if all(s == "success" for s in all_services if s) else "partial"
+    
     return {
         "overall_status": overall_status,
         "timestamp": datetime.now().isoformat(),
@@ -935,10 +851,9 @@ async def root():
 
 if __name__ == "__main__":
     uvicorn.run(
-        "ai_analyzer:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=True
+        "ai_analyzer:app", 
+        host="0.0.0.0", 
+        port=8001, 
+        reload=True,
+        log_level="info"
     )
-
-
