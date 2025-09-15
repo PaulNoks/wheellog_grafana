@@ -52,22 +52,22 @@ class WheelLogProcessor:
         """Парсинг CSV файла WheelLog"""
         try:
             logger.info(f"Парсим CSV файл: {filename}")
-            
+
             # Читаем CSV файл
             df = pd.read_csv(file_path)
-            
+
             logger.info(f"Файл прочитан, строк: {len(df)}, колонок: {len(df.columns)}")
             logger.info(f"Колонки в файле: {list(df.columns)}")
 
             # Проверяем наличие основных колонок (гибкая проверка)
             available_columns = df.columns.tolist()
-            
+
             # Ищем колонки с данными (возможны разные названия)
             time_col = None
-            speed_col = None  
+            speed_col = None
             battery_col = None
             distance_col = None
-            
+
             for col in available_columns:
                 col_lower = col.lower()
                 if 'time' in col_lower or 'timestamp' in col_lower:
@@ -85,7 +85,7 @@ class WheelLogProcessor:
             if not time_col and len(available_columns) > 0:
                 time_col = available_columns[0]
                 logger.warning(f"Колонка времени не найдена, используем: {time_col}")
-            
+
             if not speed_col and len(available_columns) > 1:
                 speed_col = available_columns[1]
                 logger.warning(f"Колонка скорости не найдена, используем: {speed_col}")
@@ -99,8 +99,10 @@ class WheelLogProcessor:
                     logger.error(f"Ошибка преобразования timestamp: {e}")
                     # Создаем искусственный timestamp
                     df['timestamp'] = pd.date_range(start=datetime.now(), periods=len(df), freq='1S')
-            
-            df['filename'] = filename
+
+            # Добавляем название файла к каждой строке
+            df['file_name'] = filename
+            logger.info(f"Добавлено название файла '{filename}' ко всем {len(df)} строкам")
 
             # Вычисляем статистику поездки
             trip_stats = self._calculate_trip_stats(df, speed_col, battery_col, distance_col)
@@ -119,11 +121,11 @@ class WheelLogProcessor:
         """Вычисление статистики поездки"""
         try:
             logger.info("Вычисляем статистику поездки")
-            
+
             # Основные метрики с проверкой наличия колонок
             distance_km = 0.0
             battery_start = 100
-            battery_end = 100  
+            battery_end = 100
             battery_used = 0
             max_speed = 0.0
             avg_speed = 0.0
@@ -133,13 +135,13 @@ class WheelLogProcessor:
                 try:
                     if 'total' in distance_col.lower():
             # Для totaldistance - вычисляем разность
-                        distance_start = float(df[distance_col].min()) 
+                        distance_start = float(df[distance_col].min())
                         distance_end = float(df[distance_col].max())
                         distance_raw = distance_end - distance_start
                     else:
             # Для distance - берем максимальное значение
                         distance_raw = float(df[distance_col].max())
-        
+
                     distance_km = distance_raw / 1000  # Всегда переводим в км
                     logger.info(f"Расстояние поездки: {distance_raw:.0f}м -> {distance_km:.2f} км")
                 except:
@@ -201,12 +203,12 @@ class WheelLogProcessor:
 
             # Проверяем структуру таблицы
             cursor.execute("""
-                SELECT column_name 
-                FROM information_schema.columns 
+                SELECT column_name
+                FROM information_schema.columns
                 WHERE table_name = 'wheellog_data'
                 ORDER BY ordinal_position;
             """)
-            
+
             db_columns = [row[0] for row in cursor.fetchall()]
             logger.info(f"Колонки в БД: {db_columns}")
 
@@ -216,37 +218,48 @@ class WheelLogProcessor:
                 conn.close()
                 return False
 
+            # Убедимся, что file_name есть в DataFrame
+            if 'file_name' not in df.columns:
+                logger.error("Колонка file_name отсутствует в DataFrame")
+                cursor.close()
+                conn.close()
+                return False
+
             # Подготавливаем данные для вставки только с существующими колонками
             df_columns = df.columns.tolist()
             valid_columns = [col for col in df_columns if col in db_columns]
-            
+
             logger.info(f"Будем вставлять колонки: {valid_columns}")
-            
+
             if not valid_columns:
                 logger.error("Нет совпадающих колонок между CSV и БД")
                 cursor.close()
                 conn.close()
                 return False
 
+            # Проверяем, что file_name будет вставлен
+            if 'file_name' not in valid_columns:
+                logger.warning("Колонка file_name не будет вставлена - проверьте структуру БД")
+
             # Формируем запрос
             placeholders = ', '.join(['%s'] * len(valid_columns))
             column_names = ', '.join(valid_columns)
 
             insert_query = f"""
-                INSERT INTO wheellog_data ({column_names}) 
+                INSERT INTO wheellog_data ({column_names})
                 VALUES ({placeholders})
             """
 
             # Подготавливаем данные
             df_subset = df[valid_columns]
             data_tuples = [tuple(row) for row in df_subset.values]
-            
+
             logger.info(f"Подготовлено {len(data_tuples)} записей для вставки")
 
             # Выполняем batch insert
             cursor.executemany(insert_query, data_tuples)
             conn.commit()
-            
+
             inserted_count = cursor.rowcount
             logger.info(f"Успешно вставлено записей в БД: {inserted_count}")
 
@@ -364,9 +377,9 @@ async def upload_file_sync(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Ошибка обработки: {str(e)}")
 
 async def process_wheellog_file(file_path: str, filename: str) -> dict:
-    """Полная обработка файла WheelLog"""
+    """Полная обработки файла WheelLog"""
 
-    try:  # Исправлен отступ
+    try:
         logger.info(f"Начинаем обработку: {filename}")
 
         # Парсим CSV
@@ -415,8 +428,8 @@ async def get_stats():
 
         # Общая статистика
         cursor.execute("""
-            SELECT 
-                COUNT(DISTINCT filename) as total_trips,
+            SELECT
+                COUNT(DISTINCT file_name) as total_trips,
                 COUNT(*) as total_records,
                 MIN(timestamp) as first_record,
                 MAX(timestamp) as last_record
@@ -428,10 +441,10 @@ async def get_stats():
 
         # Статистика за последние 30 дней
         cursor.execute("""
-            SELECT 
-                COUNT(DISTINCT filename) as recent_trips,
+            SELECT
+                COUNT(DISTINCT file_name) as recent_trips,
                 COUNT(*) as active_records
-            FROM wheellog_data 
+            FROM wheellog_data
             WHERE timestamp > NOW() - INTERVAL '30 days'
         """)
 
@@ -485,7 +498,7 @@ async def health_check():
         except:
             ai_status = "offline"
 
-        return {  # Исправлен отступ
+        return {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
             "components": {
@@ -512,7 +525,7 @@ async def root():
         "status": "running",
         "features": [
             "CSV файл обработка",
-            "TimescaleDB интеграция", 
+            "TimescaleDB интеграция",
             "N8N webhook уведомления",
             "AI анализ поездок",
             "Автоматическая отчетность"
@@ -522,4 +535,3 @@ async def root():
 if __name__ == "__main__":  # Исправлено: было name
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
